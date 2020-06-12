@@ -486,6 +486,7 @@ noticiasFinal.write.partitionBy("data", "hora", "dominio").format("json").save("
 ```
 
 ## Exercícios
+Execute os seguintes exercícios usando o dataset *noticias-final*, gerado no exemplo.
 
 1. Você pode concatenar as colunas como no exemplo abaixo.
 
