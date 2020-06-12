@@ -1,5 +1,27 @@
 # Notícias
 
+Baixe o pacote do spark em [spark.apache.org](spark.apache.org).
+
+Descompacte o pacote baixado, e entre na pasta gerada seguindo o comando a seguir (os nomes dependem da versão do spark que você escolheu):
+
+```shell
+tar -xzvf <pacote baixado>.tgz
+cd <pasta gerada>
+```
+
+Baixe o pacote `JSoup` no [neste link](https://repo1.maven.org/maven2/org/jsoup/jsoup/1.13.1/jsoup-1.13.1.jar) e copie-o para o diretório `jars` dentro da pasta de instalação do spark (pasta gerada).
+
+Por exemplo, pode fazer:
+
+```shell
+cd jars
+wget -c https://repo1.maven.org/maven2/org/jsoup/jsoup/1.13.1/jsoup-1.13.1.jar
+cd ..
+```
+
+Agora vamos iniciar os pacotes spark:
+
+
 ## Inicializando as partes
 
 Abra um terminal na pasta onde descompactou sua instalação do spark
@@ -31,6 +53,7 @@ Vamos visualizar o schema:
 ```scala
 scala> noticias.printSchema
 root
+ |-- _corrupt_record: string (nullable = true)
  |-- categories: string (nullable = true)
  |-- content: string (nullable = true)
  |-- contents: string (nullable = true)
@@ -149,3 +172,357 @@ scala> noticias.groupBy("domain").count().show(20)
 | rss.home.uol.com.br| 2054|
 +--------------------+-----+
 ```
+
+O campo *categories* é uma string, apesar de ter formato de lista. Vamos transformar essa coluna em um campo do tipo lista usando a seguinte transformação de mapeamento no dataframe.
+
+Primeiro, execute o conteúdo de `udfs.scala` para disponibilizar as UDFs que vamos usar (basta copiar, colar e executar).
+
+Em seguida, vamos fazer a tranformaçao da coluna:
+
+```scala
+scala> val noticiasComCategoria = noticias.withColumn("categorias", parseList(col("categories")))
+noticiasComCategoria: org.apache.spark.sql.DataFrame = [_corrupt_record: string, categories: string ... 12 more fields]
+```
+
+Analisando o novo schema do dataset vemos que o campo "categorias" foi criado, e que é um array de strings:
+
+```scala
+scala> noticiasComCategoria.printSchema
+root
+ |-- _corrupt_record: string (nullable = true)
+ |-- categories: string (nullable = true)
+ |-- content: string (nullable = true)
+ |-- contents: string (nullable = true)
+ |-- description: string (nullable = true)
+ |-- link: string (nullable = true)
+ |-- publishedAt: string (nullable = true)
+ |-- title: string (nullable = true)
+ |-- updatedAt: string (nullable = true)
+ |-- uri: string (nullable = true)
+ |-- domain: string (nullable = true)
+ |-- data: date (nullable = true)
+ |-- hora: integer (nullable = true)
+ |-- categorias: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ ```
+
+ Os campos *description* e *content* são códigos HTML, códigos que renderizam numa pequena introdução ao texto e ao conteúdo em si, vamos remover as tags HTML e transformar em texto legível.
+
+ ```scala
+ scala> val noticiasComCategoriaParseado = noticiasComCategoria.withColumn("descricao", parseHTML(col("description"))).withColumn("conteudo", parseHTML(col("content")))
+noticiasComCategoriaParseado: org.apache.spark.sql.DataFrame = [_corrupt_record: string, categories: string ... 14 more fields]
+```
+
+E vemos que o schema agora tem dois novos campos: conteudo e descricao, que ainda são strings:
+
+```scala
+scala> noticiasComCategoriaParseado.printSchema
+root
+ |-- _corrupt_record: string (nullable = true)
+ |-- categories: string (nullable = true)
+ |-- content: string (nullable = true)
+ |-- contents: string (nullable = true)
+ |-- description: string (nullable = true)
+ |-- link: string (nullable = true)
+ |-- publishedAt: string (nullable = true)
+ |-- title: string (nullable = true)
+ |-- updatedAt: string (nullable = true)
+ |-- uri: string (nullable = true)
+ |-- domain: string (nullable = true)
+ |-- data: date (nullable = true)
+ |-- hora: integer (nullable = true)
+ |-- categorias: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- descricao: string (nullable = true)
+ |-- conteudo: string (nullable = true)
+ ```
+
+Apesar de terem o mesmo tipo, agora a coluna *descricao* não contém mais tags HTML, e sim um texto devidamente parseado, vamos comparar *descricao* e *description* em cada linha numa amostra:
+
+```scala
+scala> noticiasComCategoriaParseado.select("descricao", "description").show()
++--------------------+--------------------+
+|           descricao|         description|
++--------------------+--------------------+
+|Está por dentro d...|  Está por dentro...|
+|Está por dentro d...|  Está por dentro...|
+|1º dia teve Madon...|   <img src="http...|
+|'Daniel Azulay é ...|   <img src="http...|
+|Caixa diz que usu...|   <img src="http...|
+|4 de outubro - Ho...|   <img src="http...|
+|Intervenções drás...|   <img src="http...|
+|Países como Bolív...|   <img src="http...|
+|Autoridades perma...|   <img src="http...|
+|5 de fevereiro - ...|   <img src="http...|
+|Veja fotos da com...|   <img src="http...|
+|O Dia do Trabalho...|   <img src="http...|
+|Está por dentro d...|  Está por dentro...|
+|Diplomata brasile...|   <img src="http...|
+|Veículos de Franç...|   <img src="http...|
+|Correspondência o...|   <img src="http...|
+|Nas últimas seman...|   <img src="http...|
+|Nos 4 primeiros m...|  Nos 4 primeiros...|
+|Analistas esperam...|  Analistas esper...|
+|Saída de Roberto ...|  Saída de Robert...|
++--------------------+--------------------+
+only showing top 20 rows
+```
+
+O mesmo pode ser visto para a relação entre *conteudo* e *content*:
+
+```scala
+scala> noticiasComCategoriaParseado.select("conteudo", "content").show()
++--------------------+--------------------+
+|            conteudo|             content|
++--------------------+--------------------+
+|QUIZ de notícias ...|<!DOCTYPE HTML>
+<...|
+|QUIZ de notícias ...|<!DOCTYPE HTML>
+<...|
+|Enem 2019: veja i...|<!DOCTYPE HTML>
+<...|
+|Daniel Azulay, ví...|<!DOCTYPE HTML>
+<...|
+|Auxílio emergenci...|<!DOCTYPE HTML>
+<...|
+|Imagens da semana...|<!DOCTYPE HTML>
+<...|
+|Coronavírus: inér...|<!DOCTYPE HTML>
+<...|
+|Problemas polític...|<!DOCTYPE HTML>
+<...|
+|Wuhan tem festa d...|<!DOCTYPE HTML>
+<...|
+|Imagens da semana...|<!DOCTYPE HTML>
+<...|
+|Ano Novo 2020; FO...|<!DOCTYPE HTML>
+<...|
+|1º de maio: manif...|<!DOCTYPE HTML>
+<...|
+|QUIZ de notícias ...|<!DOCTYPE HTML>
+<...|
+|Diretor-geral da ...|<!DOCTYPE HTML>
+<...|
+|Imprensa internac...|<!DOCTYPE HTML>
+<...|
+|Kim Jong-un mando...|<!DOCTYPE HTML>
+<...|
+|Coronavírus: o av...|<!DOCTYPE HTML>
+<...|
+|Número de MEIs no...|<!DOCTYPE HTML>
+<...|
+|Bolsa de Xangai t...|<!DOCTYPE HTML>
+<...|
+|Pressão dos EUA c...|<!DOCTYPE HTML>
+<...|
++--------------------+--------------------+
+only showing top 20 rows
+```
+
+Fica mais claro se virmos ambos separados (a quebra de linha atrapalha)
+
+```scala
+scala> noticiasComCategoriaParseado.select("conteudo").show(5)
++--------------------+
+|            conteudo|
++--------------------+
+|QUIZ de notícias ...|
+|QUIZ de notícias ...|
+|Enem 2019: veja i...|
+|Daniel Azulay, ví...|
+|Auxílio emergenci...|
++--------------------+
+only showing top 5 rows
+```
+
+```scala
+scala> noticiasComCategoriaParseado.select("content").show(5)
++--------------------+
+|             content|
++--------------------+
+|<!DOCTYPE HTML>
+<...|
+|<!DOCTYPE HTML>
+<...|
+|<!DOCTYPE HTML>
+<...|
+|<!DOCTYPE HTML>
+<...|
+|<!DOCTYPE HTML>
+<...|
++--------------------+
+only showing top 5 rows
+```
+
+Mais um ponto, vamos ver os valores distintos da coluna *updatedAt*:
+
+```scala
+scala> noticiasComCategoriaParseado.select("updatedAt").distinct().show
++---------+                                                                     
+|updatedAt|
++---------+
+|     null|
+|         |
++---------+
+```
+
+Essa coluna é inútil, já que não tem informação, vamos eliminá-la. Vamos aproveitar para *redeclarar* o dataset notícias, o original não nos interessa mais. Tenha em mente que falamos de redeclaração por que não é possível alterar o valor da variável que aponta para o dataset. Para que fique mais claro, vamos tentar alterar o valor da variável:
+
+```scala
+scala> noticias = noticiasComCategoriaParseado.drop("updatedAt")
+<console>:30: error: reassignment to val
+       noticias = noticiasComCategoriaParseado.drop("updatedAt")
+```
+
+Recebemos um erro, se veriricarmos o schema de noticias, veremos que a coluna updatedAt continua lá:
+
+```scala
+scala> noticias.printSchema
+root
+ |-- _corrupt_record: string (nullable = true)
+ |-- categories: string (nullable = true)
+ |-- content: string (nullable = true)
+ |-- contents: string (nullable = true)
+ |-- description: string (nullable = true)
+ |-- link: string (nullable = true)
+ |-- publishedAt: string (nullable = true)
+ |-- title: string (nullable = true)
+ |-- updatedAt: string (nullable = true)
+ |-- uri: string (nullable = true)
+ |-- domain: string (nullable = true)
+ |-- data: date (nullable = true)
+ |-- hora: integer (nullable = true)
+```
+
+
+Mas se fizermos uma redeclaração, teremos um resultado diferente:
+
+```
+scala> val noticias = noticiasComCategoriaParseado.drop("updatedAt")
+noticias: org.apache.spark.sql.DataFrame = [_corrupt_record: string, categories: string ... 13 more fields]
+```
+
+E o schema foi alterado:
+
+```scala
+scala> noticias.printSchema
+root
+ |-- _corrupt_record: string (nullable = true)
+ |-- categories: string (nullable = true)
+ |-- content: string (nullable = true)
+ |-- contents: string (nullable = true)
+ |-- description: string (nullable = true)
+ |-- link: string (nullable = true)
+ |-- publishedAt: string (nullable = true)
+ |-- title: string (nullable = true)
+ |-- uri: string (nullable = true)
+ |-- domain: string (nullable = true)
+ |-- data: date (nullable = true)
+ |-- hora: integer (nullable = true)
+ |-- categorias: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- descricao: string (nullable = true)
+ |-- conteudo: string (nullable = true)
+ ```
+
+ Outra coluna com valores sempre nulos é *publishedAt*, como podemos ver a seguir:
+
+ ```
+ scala> noticias.select("publishedAt").distinct.show
++-----------+                                                                   
+|publishedAt|
++-----------+
+|       null|
+|           |
++-----------+
+```
+
+Vamos removê-la.
+
+```
+scala> val noticiasSemPublishedAt = noticias.drop("publishedAt")
+noticiasSemPublishedAt: org.apache.spark.sql.DataFrame = [_corrupt_record: string, categories: string ... 12 more fields]
+```
+
+Vamos criar um conjunto de dados limpo, com as devidas transformações e apenas as colunas que nos interessam para uma próxima etapa. Primeiro, vamos renomear a colluna *title* para *titulo*, e a coluna *domain* para *dominio* mantendo o novo padrão do dataset limpo (com colunas em português).
+
+```scala
+scala> val noticiasPreFinal = noticiasSemPublishedAt.withColumnRenamed("title", "titulo").withColumnRenamed("domain", "dominio")
+preFinal: org.apache.spark.sql.DataFrame = [_corrupt_record: string, categories: string ... 12 more fields]
+
+scala> noticiasPreFinal.printSchema
+root
+ |-- _corrupt_record: string (nullable = true)
+ |-- categories: string (nullable = true)
+ |-- content: string (nullable = true)
+ |-- contents: string (nullable = true)
+ |-- description: string (nullable = true)
+ |-- link: string (nullable = true)
+ |-- titulo: string (nullable = true)
+ |-- uri: string (nullable = true)
+ |-- dominio: string (nullable = true)
+ |-- data: date (nullable = true)
+ |-- hora: integer (nullable = true)
+ |-- categorias: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- descricao: string (nullable = true)
+ |-- conteudo: string (nullable = true)
+
+```
+
+Perceba que agora não temos mais *title* e *domain*, mas temos *titulo* e *dominio*:
+
+Vamos separar apenas as colunas que nos interessam:
+
+```scala
+scala> val noticiasFinal = noticiasPreFinal.select("data", "hora", "dominio", "titulo", "descricao", "conteudo", "categorias")
+noticiasFinal: org.apache.spark.sql.DataFrame = [data: date, hora: int ... 5 more fields]
+```
+
+Agora vamos salvar esse resultado, vamos salva-lo particionando
+
+```scala
+noticiasFinal.write.partitionBy("data", "hora", "dominio").format("json").save("noticias-final")
+```
+
+## Exercícios
+
+1. Você pode concatenar as colunas como no exemplo abaixo.
+
+```scala
+val noticiasFinal = spark.read.json("noticias-final")
+scala> val concatenado = noticiasFinal.select(concat(col("titulo"), lit("\n"), col("descricao"), lit("\n"), col("conteudo")).as("corpora"))
+scala> concatenado.show()
++--------------------+
+|             corpora|
++--------------------+
+|QUIZ de notícias ...|
+|QUIZ de notícias ...|
+|Enem 2019: veja i...|
+|Daniel Azulay, ví...|
+|Auxílio emergenci...|
+|Imagens da semana...|
+|Coronavírus: inér...|
+|Problemas polític...|
+|Wuhan tem festa d...|
+|Imagens da semana...|
+|Ano Novo 2020; FO...|
+|1º de maio: manif...|
+|QUIZ de notícias ...|
+|Diretor-geral da ...|
+|Imprensa internac...|
+|Kim Jong-un mando...|
+|Coronavírus: o av...|
+|Número de MEIs no...|
+|Bolsa de Xangai t...|
+|Pressão dos EUA c...|
++--------------------+
+only showing top 20 rows
+```
+
+Crie um dataset chamado *corpora* com a coluna corpora (como descrita acima), as colunas *dominio*, *categorias* e *data*.
+
+Salve este dataframe particionado por *data* e *dominio*.
+
+2. Gere um dataset que conte o número de registros por data
+3. Gere um outro dataset que contém o número de registros por domínio

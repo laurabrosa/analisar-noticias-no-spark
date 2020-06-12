@@ -1,2 +1,8 @@
 *.class
 *.log
+.metals
+.data.des
+copy.py
+lista-arquivos
+sample30k
+sample100k
